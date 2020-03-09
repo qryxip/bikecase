@@ -1,0 +1,14 @@
+[package]
+edition = "2018"
+name = "bikecase"
+version = "0.0.0"
+authors = ["Ryo Yamashita <qryxip@gmail.com>"]
+description = 'Utilities for Rust "script"s.'
+publish = false
+readme = "README.md"
+keywords = ["cargo", "cargo-subcommand"]
+categories = ["development-tools", "development-tools::cargo-plugins"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/qryxip/bikecase"
+
+[dependencies]
