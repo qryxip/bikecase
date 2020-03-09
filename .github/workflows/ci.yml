@@ -43,31 +43,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      #- name: Setup `nightly-x86_64-unknown-linux-gnu`
-      #  uses: actions-rs/toolchain@v1
-      #  with:
-      #    toolchain: nightly-x86_64-unknown-linux-gnu
-      #    profile: minimal
-      #    default: true
-      #
-      #- name: '`cargo test --no-fail-fast`'
-      #  uses: actions-rs/cargo@v1
-      #  with:
-      #    command: test
-      #    args: --no-fail-fast
-      #  env:
-      #    CARGO_INCREMENTAL: '0'
-      #    RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads'
-      #
-      #- name: grcov
-      #  id: grcov
-      #  uses: actions-rs/grcov@v0.1
-      #
-      #- name: Codecov
-      #  uses: codecov/codecov-action@v1
-      #  with:
-      #    token: ${{ secrets.CODECOV_TOKEN }}
-      #    file: ${{ steps.grcov.outputs.report }}
+      - name: Setup `nightly-x86_64-unknown-linux-gnu`
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-x86_64-unknown-linux-gnu
+          profile: minimal
+          default: true
+
+      - name: '`cargo test --no-fail-fast`'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-fail-fast
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads'
+
+      - name: grcov
+        id: grcov
+        uses: actions-rs/grcov@v0.1
+
+      - name: Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ${{ steps.grcov.outputs.report }}
 
   build:
     strategy:
