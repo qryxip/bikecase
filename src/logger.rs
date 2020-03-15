@@ -74,23 +74,29 @@ impl<W: WriteColor + Sync + Send> Log for Logger<W> {
     fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
             let mut wtr = self.wtr.lock().unwrap();
-            let (header_fg, header) = match record.level() {
-                Level::Trace => (Color::Magenta, "trace:"),
-                Level::Debug => (Color::Green, "debug:"),
-                Level::Info => (Color::Cyan, "info:"),
-                Level::Warn => (Color::Yellow, "warn:"),
-                Level::Error => (Color::Red, "error:"),
+
+            let mut write_colored = |s: &str, fg, bold, intense| -> _ {
+                wtr.set_color(
+                    ColorSpec::new()
+                        .set_fg(Some(fg))
+                        .set_bold(bold)
+                        .set_intense(intense)
+                        .set_reset(false),
+                )?;
+                wtr.write_all(s.as_ref())?;
+                wtr.reset()
             };
 
-            wtr.set_color(
-                ColorSpec::new()
-                    .set_fg(Some(header_fg))
-                    .set_reset(false)
-                    .set_bold(true),
-            )
+            write_colored("[", Color::Black, false, true).unwrap();
+            match record.level() {
+                Level::Trace => write_colored("TRACE", Color::Magenta, true, false),
+                Level::Debug => write_colored("DEBUG", Color::Green, true, false),
+                Level::Info => write_colored("INFO", Color::Cyan, true, false),
+                Level::Warn => write_colored("WARN", Color::Yellow, true, false),
+                Level::Error => write_colored("ERROR", Color::Red, true, false),
+            }
             .unwrap();
-            wtr.write_all(header.as_ref()).unwrap();
-            wtr.reset().unwrap();
+            write_colored("]", Color::Black, false, true).unwrap();
             writeln!(wtr, " {}", record.args()).unwrap();
             wtr.flush().unwrap();
         }
