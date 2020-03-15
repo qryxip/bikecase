@@ -149,6 +149,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
                     .set("User-Agent", USER_AGENT)
                     .send_json(payload);
                 raise_synthetic_error(&res)?;
+                info!("{} {}", res.status(), res.status_text());
                 ensure!(res.status() == 201, "expected 201");
                 let CreateGist { id } = serde_json::from_str(&res.into_string()?)?;
                 info!("Created `{}`", id);
