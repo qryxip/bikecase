@@ -88,7 +88,10 @@ pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
         let manifest_path = workspace_root.join("Cargo.toml");
         (workspace_root, manifest_path)
     } else {
-        todo!()
+        bail!(
+            "`default` or `--manifest-path` is required: {}",
+            config.path().display(),
+        );
     };
 
     if !workspace_root.exists() {
@@ -264,7 +267,8 @@ fn cargo_bikecase_init_workspace(
     config
         .workspace_or_default(&path, home_dir.as_deref())?
         .template_package = Some(TildePath::new(
-        path.to_str().unwrap_or_else(|| todo!()),
+        path.to_str()
+            .with_context(|| format!("non UTF-8 path: {:?}", path))?,
         home_dir.as_deref(),
     ));
     return config.save(dry_run);

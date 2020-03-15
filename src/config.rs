@@ -80,6 +80,10 @@ impl BikecaseConfig {
         crate::fs::write(&self.path, content, dry_run)
     }
 
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     pub(crate) fn workspace(
         &self,
         workspace_root: &Path,
