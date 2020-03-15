@@ -198,7 +198,7 @@ pub(crate) struct PushOptions<'a> {
     pub(crate) dry_run: bool,
 }
 
-static USER_AGENT: &str = "cargo-scripts <https://github.com/qryxip/cargo-scripts>";
+static USER_AGENT: &str = "bikecase <https://github.com/qryxip/bikecase>";
 
 fn raise_synthetic_error(res: &Response) -> anyhow::Result<()> {
     if let Some(err) = res.synthetic_error() {
