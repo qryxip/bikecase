@@ -116,6 +116,7 @@ jobs:
         with:
           command: clippy
           args: --target ${{ matrix.target-triple }} -v -- -D warnings
+        if: matrix.channel == 'stable'
 
       - name: '`cargo test --no-fail-fast --target ${{ matrix.target-triple }} -v`'
         uses: actions-rs/cargo@v1
