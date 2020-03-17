@@ -1,5 +1,5 @@
-use crate::rust;
 use crate::AnsiColorChoice;
+use crate::{logger, rust};
 
 use anyhow::{anyhow, bail, ensure, Context as _};
 use cargo_metadata::{Package, Resolve, Target};
@@ -209,26 +209,53 @@ pub(crate) fn import_script(
     workspace_root: &Path,
     script: &str,
     dry_run: bool,
+    str_width: fn(&str) -> usize,
     path: impl FnOnce(&str) -> PathBuf,
 ) -> anyhow::Result<String> {
     let (main_rs, cargo_toml) = rust::replace_cargo_lang_code_with_default(script)?;
 
-    let CargoTomlPackage {
-        name: package_name, ..
-    } = toml::from_str::<CargoToml>(&cargo_toml)
+    let package_name = toml::from_str::<CargoToml>(&cargo_toml)
         .with_context(|| "failed to parse the manifest")?
         .package
-        .with_context(|| "missing `package.name`")?;
+        .with_context(|| "missing `package.name`")?
+        .name;
+
     let path = path(&package_name);
 
+    let prev_cargo_toml = prev_content(&path.join("Cargo.toml"))?;
+    let prev_main_rs = prev_content(&path.join("src").join("main.rs"))?;
+
     crate::fs::create_dir_all(&path, dry_run)?;
-    crate::fs::write(path.join("Cargo.toml"), cargo_toml, dry_run)?;
+    crate::fs::write(path.join("Cargo.toml"), &cargo_toml, dry_run)?;
 
     crate::fs::create_dir_all(path.join("src"), dry_run)?;
-    crate::fs::write(path.join("src").join("main.rs"), main_rs, dry_run)?;
+    crate::fs::write(path.join("src").join("main.rs"), &main_rs, dry_run)?;
 
     modify_members(&workspace_root, Some(&*path), None, None, None, dry_run)?;
-    Ok(package_name)
+
+    logger::info_diff(
+        &prev_cargo_toml,
+        &cargo_toml,
+        path.join("Cargo.toml").display(),
+        str_width,
+    );
+
+    logger::info_diff(
+        &prev_main_rs,
+        &main_rs,
+        path.join("src").join("main.rs").display(),
+        str_width,
+    );
+
+    return Ok(package_name);
+
+    fn prev_content(path: &Path) -> anyhow::Result<String> {
+        if path.exists() {
+            crate::fs::read(path)
+        } else {
+            Ok("".to_owned())
+        }
+    }
 }
 
 #[derive(Deserialize)]
