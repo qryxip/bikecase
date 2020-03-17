@@ -334,7 +334,7 @@ fn cargo_bikecase_new(
         )
         .with_context(|| {
             format!(
-                "could not find `workspaces.{:?}.template_package`",
+                "could not find `workspaces.{:?}.template-package`",
                 workspace_root,
             )
         })?
