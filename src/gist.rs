@@ -81,7 +81,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
     let state = if let btree_map::Entry::Occupied(gist_id) = &mut gist_id {
         let gist_id = gist_id.get();
         let (remote_code, remote_description) = retrieve_rust_code(gist_id)?;
-        if remote_code == local {
+        if remote_code == local && description.map_or(true, |d| d == remote_description) {
             State::UpToDate
         } else {
             State::Forward(gist_id, remote_code, remote_description)
