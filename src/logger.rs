@@ -1,11 +1,12 @@
 use crate::AnsiColorChoice;
 
-use log::{Level, LevelFilter, Log, Record};
+use log::{info, Level, LevelFilter, Log, Record};
 use once_cell::sync::OnceCell;
 use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor};
 
-use std::env;
+use std::fmt::Display;
 use std::sync::{Arc, Mutex};
+use std::{env, iter};
 
 pub(crate) fn init_logger(color: AnsiColorChoice) {
     static LOGGER: OnceCell<Logger<BufferedStandardStream>> = OnceCell::new();
@@ -27,6 +28,34 @@ pub(crate) fn init_logger(color: AnsiColorChoice) {
     if log::set_logger(logger).is_ok() {
         log::set_max_level(FILTER_LEVEL);
     }
+}
+
+pub(crate) fn info_diff(orig: &str, edit: &str, name: impl Display, str_width: fn(&str) -> usize) {
+    let name = name.to_string();
+
+    let max_width = iter::once(&*name)
+        .chain(orig.lines())
+        .chain(edit.lines())
+        .map(str_width)
+        .max()
+        .unwrap_or(0);
+
+    let horz_bar = (0..max_width / str_width("─") - str_width("┌"))
+        .map(|_| '─')
+        .collect::<String>();
+
+    info!("┌{}", horz_bar);
+    info!("│{}", name);
+    info!("├{}", horz_bar);
+    for diff in diff::lines(orig, edit) {
+        let (pref, line) = match diff {
+            diff::Result::Left(l) => ("-", l),
+            diff::Result::Both(l, _) => (" ", l),
+            diff::Result::Right(l) => ("+", l),
+        };
+        info!("│{}{}", pref, line);
+    }
+    info!("└{}", horz_bar);
 }
 
 static FILTER_MODULE: &str = "bikecase";

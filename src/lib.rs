@@ -13,12 +13,14 @@ use crate::gist::PushOptions;
 use crate::workspace::{MetadataExt as _, PackageExt as _};
 
 use anyhow::{anyhow, bail, Context as _};
+use derivative::Derivative;
 use ignore::WalkBuilder;
 use itertools::Itertools as _;
 use log::{info, warn};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames as _};
+use unicode_width::UnicodeWidthStr;
 
 use std::convert::TryInto as _;
 use std::env;
@@ -495,6 +497,7 @@ fn cargo_bikecase_import(
         cwd,
         read_input,
         init_logger,
+        str_width,
         ..
     } = ctx;
 
@@ -508,9 +511,13 @@ fn cargo_bikecase_import(
         .map(crate::fs::read)
         .unwrap_or_else(move || read_input().map_err(Into::into))?;
 
-    workspace::import_script(&workspace_root, &content, dry_run, |package_name| {
-        cwd.join(path.unwrap_or_else(|| workspace_root.join(package_name)))
-    })
+    workspace::import_script(
+        &workspace_root,
+        &content,
+        dry_run,
+        str_width,
+        |package_name| cwd.join(path.unwrap_or_else(|| workspace_root.join(package_name))),
+    )
     .map(drop)
 }
 
@@ -565,6 +572,7 @@ fn cargo_bikecase_gist_clone(
         home_dir,
         data_local_dir,
         init_logger,
+        str_width,
         ..
     } = ctx;
 
@@ -584,10 +592,13 @@ fn cargo_bikecase_gist_clone(
         .gist_ids;
 
     let (script, _) = gist::retrieve_rust_code(&gist_id)?;
-    let package_name =
-        workspace::import_script(&workspace_root, &script, dry_run, |package_name| {
-            cwd.join(path.unwrap_or_else(|| workspace_root.join(package_name)))
-        })?;
+    let package_name = workspace::import_script(
+        &workspace_root,
+        &script,
+        dry_run,
+        str_width,
+        |package_name| cwd.join(path.unwrap_or_else(|| workspace_root.join(package_name))),
+    )?;
     let old_gist_id = gist_ids.get(&package_name).cloned();
     info!(
         "`gist_ids.{:?}`: {:?} -> {:?}",
@@ -615,6 +626,7 @@ fn cargo_bikecase_gist_pull(
         home_dir,
         data_local_dir,
         init_logger,
+        str_width,
         ..
     } = ctx;
 
@@ -646,15 +658,7 @@ fn cargo_bikecase_gist_pull(
         if orig == edit {
             info!("No changes: {}", path.display());
         } else {
-            info!("`{}`:", path.display());
-            for diff in diff::lines(orig, edit) {
-                let (pref, line) = match diff {
-                    diff::Result::Left(l) => ("-", l),
-                    diff::Result::Both(l, _) => (" ", l),
-                    diff::Result::Right(l) => ("+", l),
-                };
-                info!("│{}{}", pref, line);
-            }
+            logger::info_diff(orig, edit, path.display(), str_width);
             crate::fs::write(&path, edit, dry_run)?;
         }
     }
@@ -682,6 +686,7 @@ fn cargo_bikecase_gist_push(
         data_local_dir,
         read_password,
         init_logger,
+        str_width,
         ..
     } = ctx;
 
@@ -726,6 +731,7 @@ fn cargo_bikecase_gist_push(
         private,
         description: description.as_deref(),
         dry_run,
+        str_width,
     })?;
     config.save(dry_run)
 }
@@ -1148,7 +1154,8 @@ pub struct CargoBikecaseGistPush {
     pub package: String,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Context<W, I, P> {
     pub cwd: PathBuf,
     pub home_dir: Option<PathBuf>,
@@ -1157,6 +1164,8 @@ pub struct Context<W, I, P> {
     pub read_input: I,
     pub read_password: P,
     pub init_logger: fn(AnsiColorChoice),
+    #[derivative(Debug = "ignore")]
+    pub str_width: fn(&str) -> usize,
 }
 
 impl Context<Stdout, fn() -> io::Result<String>, fn(&str) -> io::Result<String>> {
@@ -1168,6 +1177,7 @@ impl Context<Stdout, fn() -> io::Result<String>, fn(&str) -> io::Result<String>>
         let home_dir = dirs::home_dir();
         let data_local_dir = dirs::data_local_dir();
         let stdout = io::stdout();
+        let str_width = UnicodeWidthStr::width;
 
         return Ok(Self {
             cwd,
@@ -1177,6 +1187,7 @@ impl Context<Stdout, fn() -> io::Result<String>, fn(&str) -> io::Result<String>>
             read_input,
             read_password,
             init_logger,
+            str_width,
         });
 
         fn read_input() -> io::Result<String> {

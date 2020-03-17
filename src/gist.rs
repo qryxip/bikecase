@@ -1,3 +1,5 @@
+use crate::logger;
+
 use anyhow::{anyhow, bail, ensure};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
@@ -73,6 +75,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
         private,
         description,
         dry_run,
+        str_width,
     } = opts;
 
     let state = if let btree_map::Entry::Occupied(gist_id) = &mut gist_id {
@@ -81,7 +84,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
         if remote_code == local {
             State::UpToDate
         } else {
-            State::Forward(gist_id, remote_description)
+            State::Forward(gist_id, remote_code, remote_description)
         }
     } else {
         State::NotExist
@@ -92,7 +95,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
             info!("Up to date");
             Ok(())
         }
-        State::Forward(gist_id, remote_description) => {
+        State::Forward(gist_id, remote_code, remote_description) => {
             let url = "https://api.github.com/gists/"
                 .parse::<Url>()
                 .unwrap()
@@ -101,10 +104,13 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
             if dry_run {
                 info!("[dry-run] PATCH {}", url);
             } else {
+                let description = description.unwrap_or(&remote_description);
+                let filename = format!("{}.rs", package);
+
                 let payload = json!({
-                    "description": description.unwrap_or(&remote_description),
+                    "description": description,
                     "files": {
-                        format!("{}.rs", package): {
+                        &filename: {
                             "content": local
                         }
                     }
@@ -121,6 +127,8 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
                 serde_json::from_str::<serde_json::Value>(&res.into_string()?)?;
 
                 info!("Updated `{}`", gist_id);
+                logger::info_diff(&remote_description, description, "<description>", str_width);
+                logger::info_diff(&remote_code, local, filename, str_width);
             }
             Ok(())
         }
@@ -133,13 +141,16 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
                 info!("[dry-run] POST {}", URL);
                 Ok(())
             } else {
+                let filename = format!("{}.rs", package);
+                let description = description.unwrap_or_default();
+
                 let payload = json!({
                     "files": {
-                        format!("{}.rs", package): {
-                          "content": local
+                        &filename: {
+                            "content": local
                         }
                     },
-                    "description": description.unwrap_or_default(),
+                    "description": description,
                     "public": !private
                 });
 
@@ -153,6 +164,8 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
                 ensure!(res.status() == 201, "expected 201");
                 let CreateGist { id } = serde_json::from_str(&res.into_string()?)?;
                 info!("Created `{}`", id);
+                logger::info_diff("", description, "<description>", str_width);
+                logger::info_diff("", local, filename, str_width);
                 info!(
                     "`workspaces.{:?}.gist_ids.{:?}`: None → Some({:?})",
                     workspace_root, package, id,
@@ -165,7 +178,7 @@ pub(crate) fn push(opts: PushOptions<'_>) -> anyhow::Result<()> {
 
     enum State<'a> {
         UpToDate,
-        Forward(&'a str, String),
+        Forward(&'a str, String, String),
         NotExist,
     }
 
@@ -197,6 +210,7 @@ pub(crate) struct PushOptions<'a> {
     pub(crate) private: bool,
     pub(crate) description: Option<&'a str>,
     pub(crate) dry_run: bool,
+    pub(crate) str_width: fn(&str) -> usize,
 }
 
 static USER_AGENT: &str = "bikecase <https://github.com/qryxip/bikecase>";
