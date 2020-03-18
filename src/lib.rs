@@ -85,7 +85,7 @@ pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
         }
         let workspace_root = manifest_path.parent().expect("should not empty").to_owned();
         (workspace_root, manifest_path)
-    } else if let Some(workspace_root) = &config.default {
+    } else if let Some(workspace_root) = &config.content().default {
         let workspace_root = PathBuf::from(workspace_root.expand(home_dir.as_deref()).into_owned());
         let manifest_path = workspace_root.join("Cargo.toml");
         (workspace_root, manifest_path)
@@ -267,6 +267,7 @@ fn cargo_bikecase_init_workspace(
     )?;
 
     config
+        .content_mut()
         .workspace_or_default(&path, home_dir.as_deref())?
         .template_package = Some(TildePath::new(
         path.to_str()
@@ -326,6 +327,7 @@ fn cargo_bikecase_new(
         dry_run,
     )?;
     let base = config
+        .content()
         .workspace(&workspace_root, home_dir.as_deref())
         .and_then(
             |BikecaseConfigWorkspace {
@@ -588,6 +590,7 @@ fn cargo_bikecase_gist_clone(
         dry_run,
     )?;
     let gist_ids = &mut config
+        .content_mut()
         .workspace_or_default(&workspace_root, home_dir.as_deref())?
         .gist_ids;
 
@@ -642,6 +645,7 @@ fn cargo_bikecase_gist_pull(
         dry_run,
     )?;
     let gist_id = config
+        .content()
         .workspace(&metadata.workspace_root, home_dir.as_deref())
         .and_then(|BikecaseConfigWorkspace { gist_ids, .. }| gist_ids.get(&package.name))
         .with_context(|| format!("could not find the `gist_id` for {:?}", package.name))?;
@@ -702,12 +706,14 @@ fn cargo_bikecase_gist_push(
     )?;
 
     let github_token = config
+        .content()
         .github_token
         .as_ref()
         .with_context(|| "missing `github-token`")?
         .load_or_ask(dry_run, home_dir.as_deref(), read_password)?;
 
     let gist_id = config
+        .content_mut()
         .workspace_or_default(&metadata.workspace_root, home_dir.as_deref())?
         .gist_ids
         .entry(package.clone());
