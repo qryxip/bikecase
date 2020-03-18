@@ -14,16 +14,9 @@ pub(crate) static PATH: Lazy<String> = Lazy::new(|| {
         .unwrap_or_else(|| "bikecase.toml".to_owned())
 });
 
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug)]
 pub(crate) struct BikecaseConfig {
-    #[serde(default)]
-    pub(crate) default: Option<TildePath>,
-    #[serde(default)]
-    pub(crate) github_token: Option<BikecaseConfigGithubToken>,
-    #[serde(default)]
-    pub(crate) workspaces: IndexMap<TildePath, BikecaseConfigWorkspace>,
-    #[serde(skip)]
+    content: BikecaseConfigContent,
     path: PathBuf,
 }
 
@@ -36,9 +29,9 @@ impl BikecaseConfig {
     ) -> anyhow::Result<Self> {
         let path = path.to_owned();
         if path.exists() {
-            let this = toml::from_str::<Self>(&crate::fs::read(&path)?)
+            let content = toml::from_str(&crate::fs::read(&path)?)
                 .with_context(|| format!("failed to parse the TOML file at {}", path.display()))?;
-            Ok(Self { path, ..this })
+            Ok(Self { content, path })
         } else {
             let data_local_dir =
                 data_local_dir.with_context(|| "could not find the local data directory")?;
@@ -57,14 +50,16 @@ impl BikecaseConfig {
                 .map_err(|s| anyhow!("{:?} is not valid UTF-8", s))?;
             let default = TildePath::new(&default, home_dir);
             let this = Self {
-                github_token: Some(BikecaseConfigGithubToken::File {
-                    path: github_token_path,
-                }),
-                default: Some(default.clone()),
-                workspaces: indexmap!(default.clone() => BikecaseConfigWorkspace {
-                    template_package: Some(default.join("template")),
-                    gist_ids: BTreeMap::new(),
-                }),
+                content: BikecaseConfigContent {
+                    github_token: Some(BikecaseConfigGithubToken::File {
+                        path: github_token_path,
+                    }),
+                    default: Some(default.clone()),
+                    workspaces: indexmap!(default.clone() => BikecaseConfigWorkspace {
+                        template_package: Some(default.join("template")),
+                        gist_ids: BTreeMap::new(),
+                    }),
+                },
                 path,
             };
             this.save(dry_run)?;
@@ -76,14 +71,35 @@ impl BikecaseConfig {
         if let Some(parent) = self.path.parent() {
             crate::fs::create_dir_all(parent, dry_run)?;
         }
-        let content = toml::to_string_pretty(&self).expect("should not fail");
+        let content = toml::to_string_pretty(&self.content).expect("should not fail");
         crate::fs::write(&self.path, content, dry_run)
+    }
+
+    pub(crate) fn content(&self) -> &BikecaseConfigContent {
+        &self.content
+    }
+
+    pub(crate) fn content_mut(&mut self) -> &mut BikecaseConfigContent {
+        &mut self.content
     }
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+}
 
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct BikecaseConfigContent {
+    #[serde(default)]
+    pub(crate) default: Option<TildePath>,
+    #[serde(default)]
+    pub(crate) github_token: Option<BikecaseConfigGithubToken>,
+    #[serde(default)]
+    pub(crate) workspaces: IndexMap<TildePath, BikecaseConfigWorkspace>,
+}
+
+impl BikecaseConfigContent {
     pub(crate) fn workspace(
         &self,
         workspace_root: &Path,
