@@ -3,7 +3,6 @@ use itertools::Itertools as _;
 use log::info;
 
 use std::ffi::{OsStr, OsString};
-use std::io;
 
 pub(crate) fn cmd<T, U>(program: T, args: U) -> Expression
 where
@@ -15,22 +14,6 @@ where
     let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
     info(&program, &args, false);
     duct::cmd(program, args)
-}
-
-pub(crate) fn run<T, U>(program: T, args: U, dry_run: bool) -> io::Result<()>
-where
-    T: IntoExecutablePath,
-    U: IntoIterator,
-    U::Item: Into<OsString>,
-{
-    let program = program.to_executable();
-    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
-    info(&program, &args, dry_run);
-    if dry_run {
-        Ok(())
-    } else {
-        duct::cmd(program, args).run().map(drop)
-    }
 }
 
 fn info(program: &OsStr, args: &[OsString], dry_run: bool) {

@@ -53,26 +53,6 @@ pub(crate) fn write(
     Ok(())
 }
 
-pub(crate) fn copy(
-    src: impl AsRef<Path>,
-    dst: impl AsRef<Path>,
-    dry_run: bool,
-) -> anyhow::Result<()> {
-    let (src, dst) = (src.as_ref(), dst.as_ref());
-    if !dry_run {
-        std::fs::copy(src, dst).with_context(|| {
-            format!("failed to copy `{}` to `{}`", src.display(), dst.display())
-        })?;
-    }
-    info!(
-        "{}Copied {} to {}",
-        if dry_run { "[dry-run] " } else { "" },
-        src.display(),
-        dst.display(),
-    );
-    Ok(())
-}
-
 pub(crate) fn create_dir_all(path: impl AsRef<Path>, dry_run: bool) -> anyhow::Result<()> {
     let path = path.as_ref();
     if !dry_run {

@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context as _};
 use indexmap::{indexmap, IndexMap};
+use maplit::btreemap;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
+use toml_edit::Document;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -55,15 +58,43 @@ impl BikecaseConfig {
                         path: github_token_path,
                     }),
                     default: Some(default.clone()),
-                    workspaces: indexmap!(default.clone() => BikecaseConfigWorkspace {
-                        template_package: Some(default.join("template")),
-                        gist_ids: BTreeMap::new(),
+                    workspaces: indexmap!(default => BikecaseConfigWorkspace {
+                        gist_ids: btreemap!(),
                     }),
+                    template: btreemap!(
+                        "Cargo.toml".to_owned() => TemplateFile::File(
+                            TEMPLATE_CARGO_TOML.to_owned(),
+                        ),
+                        "src".to_owned() => TemplateFile::Dir(btreemap!(
+                            "main.rs".to_owned() => Box::new(TemplateFile::File(
+                                TEMPLATE_SRC_MAIN_RS.to_owned(),
+                            )),
+                        )),
+                    ),
                 },
                 path,
             };
             this.save(dry_run)?;
-            Ok(this)
+            return Ok(this);
+
+            static TEMPLATE_CARGO_TOML: &str = r#"[package]
+name = "template"
+version = "0.0.0"
+authors = ["Ryo Yamashita <qryxip@gmail.com>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+"#;
+
+            static TEMPLATE_SRC_MAIN_RS: &str = r#"//! ```cargo
+//! # Leave blank.
+//! ```
+
+fn main() {
+    todo!();
+}
+"#;
         }
     }
 
@@ -86,6 +117,18 @@ impl BikecaseConfig {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+
+    pub(crate) fn template_cargo_toml(&self) -> anyhow::Result<Document> {
+        let path = || self.path.display();
+        self.content
+            .template
+            .get("Cargo.toml")
+            .with_context(|| format!("missing `template.\"Cargo.toml\"`: {}", path()))?
+            .file()
+            .with_context(|| format!("expected string: `template.\"Cargo.toml\"`: {}", path()))?
+            .parse()
+            .with_context(|| format!("failed to parse `template.\"Cargo.toml\"`: {}", path()))
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -97,6 +140,8 @@ pub(crate) struct BikecaseConfigContent {
     pub(crate) github_token: Option<BikecaseConfigGithubToken>,
     #[serde(default)]
     pub(crate) workspaces: IndexMap<TildePath, BikecaseConfigWorkspace>,
+    #[serde(default)]
+    pub(crate) template: BTreeMap<String, TemplateFile>,
 }
 
 impl BikecaseConfigContent {
@@ -129,6 +174,25 @@ impl BikecaseConfigContent {
             })?;
 
         Ok(self.workspaces.entry(key).or_default())
+    }
+
+    pub(crate) fn template(&self, dir: &Path) -> BTreeMap<PathBuf, &str> {
+        let mut acc = btreemap!();
+        let mut queue = self
+            .template
+            .iter()
+            .map(|(k, v)| (dir.join(k), v))
+            .collect::<VecDeque<_>>();
+
+        while let Some((path, content)) = queue.pop_front() {
+            match content {
+                TemplateFile::File(s) => {
+                    acc.insert(path, &**s);
+                }
+                TemplateFile::Dir(m) => queue.extend(m.iter().map(|(k, v)| (path.join(k), &**v))),
+            }
+        }
+        acc
     }
 }
 
@@ -163,7 +227,6 @@ impl BikecaseConfigGithubToken {
 #[derive(Deserialize, Serialize, Default, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct BikecaseConfigWorkspace {
-    pub(crate) template_package: Option<TildePath>,
     #[serde(default)]
     pub(crate) gist_ids: BTreeMap<String, String>,
 }
@@ -185,14 +248,43 @@ impl TildePath {
     pub(crate) fn expand(&self, home_dir: Option<&Path>) -> Cow<'_, str> {
         shellexpand::tilde_with_context(&self.0, || home_dir)
     }
+}
 
-    fn join(&self, path: &str) -> Self {
-        Self(
-            Path::new(&self.0)
-                .join(path)
-                .into_os_string()
-                .into_string()
-                .expect("should be utf-8"),
-        )
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub(crate) enum TemplateFile {
+    File(String),
+    Dir(BTreeMap<String, Box<Self>>),
+}
+
+impl TemplateFile {
+    fn file(&self) -> Option<&str> {
+        match self {
+            Self::File(s) => Some(s),
+            Self::Dir(_) => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TemplateFile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        return match Repr::deserialize(deserializer)? {
+            Repr::String(s) => Ok(Self::File(s)),
+            Repr::Map(m) => Ok(Self::Dir(m)),
+            Repr::Other(_) => Err(D::Error::custom(
+                "expected string or string → string|map map",
+            )),
+        };
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            String(String),
+            Map(BTreeMap<String, Box<TemplateFile>>),
+            Other(toml::Value),
+        }
     }
 }

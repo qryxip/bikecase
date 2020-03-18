@@ -8,13 +8,12 @@ mod process;
 mod rust;
 mod workspace;
 
-use crate::config::{BikecaseConfig, BikecaseConfigWorkspace, TildePath};
+use crate::config::{BikecaseConfig, BikecaseConfigWorkspace};
 use crate::gist::PushOptions;
 use crate::workspace::{MetadataExt as _, PackageExt as _};
 
 use anyhow::{anyhow, bail, Context as _};
 use derivative::Derivative;
-use ignore::WalkBuilder;
 use itertools::Itertools as _;
 use log::{info, warn};
 use structopt::clap::AppSettings;
@@ -26,7 +25,7 @@ use std::convert::TryInto as _;
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, Read as _, Stdout, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
     opt: Bikecase,
@@ -206,89 +205,21 @@ fn cargo_bikecase_init_workspace(
     let CargoBikecaseInitWorkspace {
         color,
         dry_run,
-        config,
         path,
     } = opt;
 
     let Context {
-        cwd,
-        home_dir,
-        data_local_dir,
-        init_logger,
-        ..
+        cwd, init_logger, ..
     } = ctx;
 
     init_logger(color);
 
     let path = cwd.join(path.strip_prefix(".").unwrap_or(&path));
-
-    let mut config = BikecaseConfig::load_or_create(
-        &config,
-        home_dir.as_deref(),
-        data_local_dir.as_deref(),
-        dry_run,
-    )?;
-
-    crate::fs::write(path.join("Cargo.toml"), CARGO_TOML, dry_run)?;
-
-    let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let args = vec![
-        OsString::from("new"),
-        OsString::from("--vcs"),
-        OsString::from("none"),
-        path.join("template").into(),
-    ];
-    crate::process::run(program, args, dry_run)?;
-
-    if !dry_run {
-        let mut cargo_toml = crate::fs::read_toml_edit(path.join("template").join("Cargo.toml"))?;
-
-        let old_package_version = cargo_toml["package"]["version"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned();
-        cargo_toml["package"]["version"] = toml_edit::value("0.0.0");
-        info!("`package.version`: {:?} → \"0.0.0\"", old_package_version);
-        let old_package_publish = cargo_toml["package"]["publish"].clone();
-        cargo_toml["package"]["publish"] = toml_edit::value(false);
-        info!("`package.publish`: {:?} → false", old_package_publish);
-
-        crate::fs::write(
-            path.join("template").join("Cargo.toml"),
-            cargo_toml.to_string(),
-            false,
-        )?;
-    }
-
-    crate::fs::write(
-        path.join("template").join("src").join("main.rs"),
-        TEMPLATE_SRC_MAIN_RS,
-        dry_run,
-    )?;
-
-    config
-        .content_mut()
-        .workspace_or_default(&path, home_dir.as_deref())?
-        .template_package = Some(TildePath::new(
-        path.to_str()
-            .with_context(|| format!("non UTF-8 path: {:?}", path))?,
-        home_dir.as_deref(),
-    ));
-    return config.save(dry_run);
+    return crate::fs::write(path.join("Cargo.toml"), CARGO_TOML, dry_run);
 
     static CARGO_TOML: &str = r#"[workspace]
-members = ["template"]
+members = []
 exclude = []
-"#;
-
-    static TEMPLATE_SRC_MAIN_RS: &str = r#"#!/usr/bin/env bikecase
-//! ```cargo
-//! # Leave blank.
-//! ```
-
-fn main() {
-    todo!();
-}
 "#;
 }
 
@@ -326,44 +257,17 @@ fn cargo_bikecase_new(
         data_local_dir.as_deref(),
         dry_run,
     )?;
-    let base = config
-        .content()
-        .workspace(&workspace_root, home_dir.as_deref())
-        .and_then(
-            |BikecaseConfigWorkspace {
-                 template_package, ..
-             }| template_package.as_ref(),
-        )
-        .with_context(|| {
-            format!(
-                "could not find `workspaces.{:?}.template-package`",
-                workspace_root,
-            )
-        })?
-        .expand(home_dir.as_deref());
-    let base = Path::new(&*base);
-    let base = workspace_root.join(base.strip_prefix(".").unwrap_or(base));
 
-    for entry in WalkBuilder::new(&base).hidden(false).build() {
-        match entry {
-            Ok(entry) => {
-                let src = entry.path();
-                let dst = path.join(src.strip_prefix(&base)?);
-                if !(src.is_dir() || src == base.join("Cargo.toml")) {
-                    if let Some(parent) = dst.parent() {
-                        if !parent.exists() {
-                            crate::fs::create_dir_all(parent, dry_run)?;
-                        }
-                    }
-                    crate::fs::copy(src, &dst, dry_run)?;
-                }
-            }
-            Err(err) => warn!("{}", err),
+    for (dst, content) in config.content().template(&path) {
+        if let Some(parent) = dst.parent() {
+            crate::fs::create_dir_all(parent, dry_run)?;
+        }
+        if dst != path.join("Cargo.toml") {
+            crate::fs::write(dst, content, dry_run)?;
         }
     }
 
-    let src_manifest_path = base.join("Cargo.toml");
-    let mut cargo_toml = crate::fs::read_toml_edit(&src_manifest_path)?;
+    let mut cargo_toml = config.template_cargo_toml()?;
     let new_package_name = name.as_deref().map(Ok).unwrap_or_else(|| {
         path.file_name()
             .unwrap_or_default()
@@ -371,18 +275,9 @@ fn cargo_bikecase_new(
             .with_context(|| format!("the file name of `{}` is not valid UTF-8", path.display()))
     })?;
     workspace::modify_package_name(&mut cargo_toml, new_package_name)?;
+    crate::fs::write(path.join("Cargo.toml"), cargo_toml.to_string(), dry_run)?;
 
-    let dst_manifest_path = path.join("Cargo.toml");
-    crate::fs::write(&dst_manifest_path, cargo_toml.to_string(), dry_run)?;
-
-    workspace::modify_members(
-        &workspace_root,
-        Some(path.strip_prefix(&base).unwrap_or(&path)),
-        None,
-        None,
-        None,
-        dry_run,
-    )
+    workspace::modify_members(&workspace_root, Some(&path), None, None, None, dry_run)
 }
 
 fn cargo_bikecase_rm(
@@ -892,10 +787,6 @@ pub struct CargoBikecaseInitWorkspace {
     /// Dry run
     #[structopt(long)]
     pub dry_run: bool,
-
-    /// Path to the config file
-    #[structopt(long, value_name("PATH"), default_value(&config::PATH))]
-    pub config: PathBuf,
 
     /// [cargo] Directory
     #[structopt(default_value("."))]
