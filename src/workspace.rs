@@ -143,6 +143,24 @@ pub(crate) fn modify_package_name(cargo_toml: &mut Document, name: &str) -> anyh
     Ok(())
 }
 
+pub(crate) fn modify_package_version(cargo_toml: &mut Document, version: &str) {
+    info!(
+        "`package.version`: {:?} → {:?}",
+        cargo_toml["version"].as_str(),
+        version,
+    );
+    cargo_toml["package"]["version"] = toml_edit::value(version)
+}
+
+pub(crate) fn modify_package_publish(cargo_toml: &mut Document, publish: bool) {
+    info!(
+        "`package.publish`: {:?} → {}",
+        cargo_toml["publish"].as_bool(),
+        publish,
+    );
+    cargo_toml["package"]["publish"] = toml_edit::value(publish)
+}
+
 pub(crate) fn modify_members<'a>(
     workspace_root: &Path,
     add_to_workspace_members: Option<&'a Path>,

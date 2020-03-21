@@ -1,15 +1,16 @@
+use crate::workspace;
+
 use anyhow::{anyhow, Context as _};
 use indexmap::{indexmap, IndexMap};
+use log::info;
 use maplit::btreemap;
 use once_cell::sync::Lazy;
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
-use toml_edit::Document;
+use serde::{Deserialize, Serialize};
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, VecDeque};
-use std::io;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::{env, io};
 
 pub(crate) static PATH: Lazy<String> = Lazy::new(|| {
     dirs::config_dir()
@@ -45,49 +46,69 @@ impl BikecaseConfig {
                 .into_string()
                 .map_err(|s| anyhow!("{:?} is not valid UTF-8", s))?;
             let github_token_path = TildePath::new(&github_token_path, home_dir);
-            let default = data_local_dir
+            let default_workspace_expanded = data_local_dir
                 .join("bikecase")
-                .join("default-workspace")
+                .join("workspace")
                 .into_os_string()
                 .into_string()
                 .map_err(|s| anyhow!("{:?} is not valid UTF-8", s))?;
-            let default = TildePath::new(&default, home_dir);
+            let default_workspace = TildePath::new(&default_workspace_expanded, home_dir);
+            let template_package_expanded = data_local_dir
+                .join("bikecase")
+                .join("template")
+                .into_os_string()
+                .into_string()
+                .map_err(|s| anyhow!("{:?} is not valid UTF-8", s))?;
+            let template_package = TildePath::new(&template_package_expanded, home_dir);
             let this = Self {
                 content: BikecaseConfigContent {
                     github_token: Some(BikecaseConfigGithubToken::File {
                         path: github_token_path,
                     }),
-                    default: Some(default.clone()),
-                    workspaces: indexmap!(default => BikecaseConfigWorkspace {
+                    default_workspace: Some(default_workspace.clone()),
+                    template_package: Some(template_package),
+                    workspaces: indexmap!(default_workspace => BikecaseConfigWorkspace {
                         gist_ids: btreemap!(),
                     }),
-                    template: btreemap!(
-                        "Cargo.toml".to_owned() => TemplateFile::File(
-                            TEMPLATE_CARGO_TOML.to_owned(),
-                        ),
-                        "src".to_owned() => TemplateFile::Dir(btreemap!(
-                            "main.rs".to_owned() => Box::new(TemplateFile::File(
-                                TEMPLATE_SRC_MAIN_RS.to_owned(),
-                            )),
-                        )),
-                    ),
                 },
                 path,
             };
             this.save(dry_run)?;
+            if !Path::new(&default_workspace_expanded).exists() {
+                workspace::create_workspace(default_workspace_expanded, dry_run)?;
+            }
+            if !Path::new(&template_package_expanded).exists() {
+                crate::process::run(
+                    env::var_os("CARGO").unwrap_or_else(|| "cargo".into()),
+                    &["new", "--name", "__template", &template_package_expanded],
+                    dry_run,
+                )?;
+                if dry_run {
+                    info!("[dry-run] Modifying {}", template_package_expanded);
+                } else {
+                    info!("Modifying {}", template_package_expanded);
+                    let mut cargo_toml = crate::fs::read_toml_edit(
+                        Path::new(&template_package_expanded).join("Cargo.toml"),
+                    )?;
+                    workspace::modify_package_version(&mut cargo_toml, "0.0.0");
+                    workspace::modify_package_publish(&mut cargo_toml, false);
+                    crate::fs::write(
+                        Path::new(&template_package_expanded).join("Cargo.toml"),
+                        cargo_toml.to_string(),
+                        false,
+                    )?;
+                    crate::fs::write(
+                        Path::new(&template_package_expanded)
+                            .join("src")
+                            .join("main.rs"),
+                        TEMPLATE_PACKAGE_MAIN_RS,
+                        false,
+                    )?;
+                }
+            }
             return Ok(this);
 
-            static TEMPLATE_CARGO_TOML: &str = r#"[package]
-name = "template"
-version = "0.0.0"
-authors = ["Ryo Yamashita <qryxip@gmail.com>"]
-edition = "2018"
-publish = false
-
-[dependencies]
-"#;
-
-            static TEMPLATE_SRC_MAIN_RS: &str = r#"//! ```cargo
+            static TEMPLATE_PACKAGE_MAIN_RS: &str = r#"//! ```cargo
 //! # Leave blank.
 //! ```
 
@@ -117,31 +138,19 @@ fn main() {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
-
-    pub(crate) fn template_cargo_toml(&self) -> anyhow::Result<Document> {
-        let path = || self.path.display();
-        self.content
-            .template
-            .get("Cargo.toml")
-            .with_context(|| format!("missing `template.\"Cargo.toml\"`: {}", path()))?
-            .file()
-            .with_context(|| format!("expected string: `template.\"Cargo.toml\"`: {}", path()))?
-            .parse()
-            .with_context(|| format!("failed to parse `template.\"Cargo.toml\"`: {}", path()))
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct BikecaseConfigContent {
     #[serde(default)]
-    pub(crate) default: Option<TildePath>,
+    pub(crate) default_workspace: Option<TildePath>,
+    #[serde(default)]
+    pub(crate) template_package: Option<TildePath>,
     #[serde(default)]
     pub(crate) github_token: Option<BikecaseConfigGithubToken>,
     #[serde(default)]
     pub(crate) workspaces: IndexMap<TildePath, BikecaseConfigWorkspace>,
-    #[serde(default)]
-    pub(crate) template: BTreeMap<String, TemplateFile>,
 }
 
 impl BikecaseConfigContent {
@@ -174,25 +183,6 @@ impl BikecaseConfigContent {
             })?;
 
         Ok(self.workspaces.entry(key).or_default())
-    }
-
-    pub(crate) fn template(&self, dir: &Path) -> BTreeMap<PathBuf, &str> {
-        let mut acc = btreemap!();
-        let mut queue = self
-            .template
-            .iter()
-            .map(|(k, v)| (dir.join(k), v))
-            .collect::<VecDeque<_>>();
-
-        while let Some((path, content)) = queue.pop_front() {
-            match content {
-                TemplateFile::File(s) => {
-                    acc.insert(path, &**s);
-                }
-                TemplateFile::Dir(m) => queue.extend(m.iter().map(|(k, v)| (path.join(k), &**v))),
-            }
-        }
-        acc
     }
 }
 
@@ -247,44 +237,5 @@ impl TildePath {
 
     pub(crate) fn expand(&self, home_dir: Option<&Path>) -> Cow<'_, str> {
         shellexpand::tilde_with_context(&self.0, || home_dir)
-    }
-}
-
-#[derive(Serialize, Debug)]
-#[serde(untagged)]
-pub(crate) enum TemplateFile {
-    File(String),
-    Dir(BTreeMap<String, Box<Self>>),
-}
-
-impl TemplateFile {
-    fn file(&self) -> Option<&str> {
-        match self {
-            Self::File(s) => Some(s),
-            Self::Dir(_) => None,
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for TemplateFile {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        return match Repr::deserialize(deserializer)? {
-            Repr::String(s) => Ok(Self::File(s)),
-            Repr::Map(m) => Ok(Self::Dir(m)),
-            Repr::Other(_) => Err(D::Error::custom(
-                "expected string or string → string|map map",
-            )),
-        };
-
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Repr {
-            String(String),
-            Map(BTreeMap<String, Box<TemplateFile>>),
-            Other(toml::Value),
-        }
     }
 }
