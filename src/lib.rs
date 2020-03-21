@@ -14,6 +14,7 @@ use crate::workspace::{MetadataExt as _, PackageExt as _};
 
 use anyhow::{anyhow, bail, Context as _};
 use derivative::Derivative;
+use ignore::WalkBuilder;
 use itertools::Itertools as _;
 use log::{info, warn};
 use structopt::clap::AppSettings;
@@ -25,7 +26,7 @@ use std::convert::TryInto as _;
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, Read as _, Stdout, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
     opt: Bikecase,
@@ -84,7 +85,7 @@ pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
         }
         let workspace_root = manifest_path.parent().expect("should not empty").to_owned();
         (workspace_root, manifest_path)
-    } else if let Some(workspace_root) = &config.content().default {
+    } else if let Some(workspace_root) = &config.content().default_workspace {
         let workspace_root = PathBuf::from(workspace_root.expand(home_dir.as_deref()).into_owned());
         let manifest_path = workspace_root.join("Cargo.toml");
         (workspace_root, manifest_path)
@@ -214,13 +215,7 @@ fn cargo_bikecase_init_workspace(
 
     init_logger(color);
 
-    let path = cwd.join(path.strip_prefix(".").unwrap_or(&path));
-    return crate::fs::write(path.join("Cargo.toml"), CARGO_TOML, dry_run);
-
-    static CARGO_TOML: &str = r#"[workspace]
-members = []
-exclude = []
-"#;
+    workspace::create_workspace(cwd.join(path.strip_prefix(".").unwrap_or(&path)), dry_run)
 }
 
 fn cargo_bikecase_new(
@@ -258,16 +253,36 @@ fn cargo_bikecase_new(
         dry_run,
     )?;
 
-    for (dst, content) in config.content().template(&path) {
-        if let Some(parent) = dst.parent() {
-            crate::fs::create_dir_all(parent, dry_run)?;
-        }
-        if dst != path.join("Cargo.toml") {
-            crate::fs::write(dst, content, dry_run)?;
+    let template_package = config
+        .content()
+        .template_package
+        .as_ref()
+        .with_context(|| format!("missing `template-package`: {}", config.path().display()))?
+        .expand(home_dir.as_deref());
+    let template_package = Path::new(&*template_package);
+
+    for entry in WalkBuilder::new(template_package).hidden(false).build() {
+        match entry {
+            Ok(entry) => {
+                let from = entry.path();
+                if !(from.is_dir()
+                    || from == template_package.join("Cargo.toml")
+                    || from.starts_with(template_package.join(".git")))
+                {
+                    let to = path.join(from.strip_prefix(template_package)?);
+                    if let Some(parent) = to.parent() {
+                        if !parent.exists() {
+                            crate::fs::create_dir_all(parent, dry_run)?;
+                        }
+                    }
+                    crate::fs::copy(from, to, dry_run)?;
+                }
+            }
+            Err(err) => warn!("{}", err),
         }
     }
 
-    let mut cargo_toml = config.template_cargo_toml()?;
+    let mut cargo_toml = crate::fs::read_toml_edit(template_package.join("Cargo.toml"))?;
     let new_package_name = name.as_deref().map(Ok).unwrap_or_else(|| {
         path.file_name()
             .unwrap_or_default()

@@ -16,6 +16,21 @@ where
     duct::cmd(program, args)
 }
 
+pub(crate) fn run<T, U>(program: T, args: U, dry_run: bool) -> anyhow::Result<()>
+where
+    T: IntoExecutablePath,
+    U: IntoIterator,
+    U::Item: Into<OsString>,
+{
+    let program = program.to_executable();
+    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+    info(&program, &args, false);
+    if !dry_run {
+        duct::cmd(program, args).run()?;
+    }
+    Ok(())
+}
+
 fn info(program: &OsStr, args: &[OsString], dry_run: bool) {
     info!(
         "{}Running `{}{}`",
