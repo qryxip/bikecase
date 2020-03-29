@@ -2,13 +2,15 @@ use crate::AnsiColorChoice;
 use crate::{logger, rust};
 
 use anyhow::{anyhow, bail, ensure, Context as _};
-use cargo_metadata::{Package, Resolve, Target};
+use cargo_metadata::{Package, Target};
 use itertools::Itertools as _;
 use log::info;
 use serde::Deserialize;
 use toml_edit::Document;
+use url::Url;
 
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn create_workspace(dir: impl AsRef<Path>, dry_run: bool) -> anyhow::Result<()> {
@@ -24,36 +26,41 @@ exclude = []
 "#;
 }
 
+pub(crate) fn manfiest_path(manifest_path: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
+    manifest_path
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            cwd.ancestors()
+                .map(|p| p.join("Cargo.toml"))
+                .find(|p| p.exists())
+        })
+        .with_context(|| {
+            format!(
+                "could not find `Cargo.toml` in `{}` or any parent directory",
+                cwd.display(),
+            )
+        })
+}
+
 pub(crate) fn cargo_metadata_no_deps(
-    manifest_path: Option<&Path>,
+    manifest_path: &Path,
     color: AnsiColorChoice,
     cwd: &Path,
 ) -> anyhow::Result<cargo_metadata::Metadata> {
     let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut args = vec![
-        "metadata".into(),
-        "--no-deps".into(),
-        "--format-version".into(),
-        "1".into(),
-        "--color".into(),
-        <&str>::from(color).into(),
-        "--frozen".into(),
+    let args = [
+        "metadata".as_ref(),
+        "--no-deps".as_ref(),
+        "--manifest-path".as_ref(),
+        manifest_path.as_os_str(),
+        "--format-version".as_ref(),
+        "1".as_ref(),
+        "--color".as_ref(),
+        <&str>::from(color).as_ref(),
+        "--frozen".as_ref(),
     ];
-    if let Some(cli_option_manifest_path) = manifest_path {
-        args.push("--manifest-path".into());
-        args.push(cwd.join(cli_option_manifest_path).into_os_string());
-    }
-
-    let metadata = crate::process::cmd(program, args).dir(cwd).read()?;
+    let metadata = crate::process::cmd(program, &args).dir(cwd).read()?;
     let metadata = serde_json::from_str::<cargo_metadata::Metadata>(&metadata)?;
-
-    if metadata
-        .resolve
-        .as_ref()
-        .map_or(false, |Resolve { root, .. }| root.is_some())
-    {
-        bail!("the target package must be a virtual manifest");
-    }
     Ok(metadata)
 }
 
@@ -290,15 +297,65 @@ struct CargoTomlPackage {
 }
 
 pub(crate) trait MetadataExt {
-    fn find_package(&self, name: &str) -> anyhow::Result<&Package>;
+    fn query_for_local_package<'a>(
+        &'a self,
+        manifest_path: &Path,
+        spec: Option<&str>,
+    ) -> anyhow::Result<&'a Package>;
 }
 
 impl MetadataExt for cargo_metadata::Metadata {
-    fn find_package(&self, name: &str) -> anyhow::Result<&Package> {
+    fn query_for_local_package<'a>(
+        &'a self,
+        manifest_path: &Path,
+        spec: Option<&str>,
+    ) -> anyhow::Result<&'a Package> {
+        let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let args = [
+            Some("pkgid".as_ref()),
+            Some("--manifest-path".as_ref()),
+            Some(manifest_path.as_ref()),
+            spec.map(OsStr::new),
+        ];
+        let args = args.iter().flatten();
+        let mut url = crate::process::cmd(program, args)
+            .dir(&self.workspace_root)
+            .stdout_capture()
+            .read()?
+            .parse::<Url>()?;
+
+        let fragment = url
+            .fragment()
+            .with_context(|| "the URL should contain fragment")?;
+
+        let (name, version) = match *fragment.split(':').collect::<Vec<_>>() {
+            [name, version] => (name.to_owned(), version.to_owned()),
+            [version] => {
+                let name = url
+                    .path_segments()
+                    .and_then(Iterator::last)
+                    .unwrap_or_default();
+                (name.to_owned(), version.to_owned())
+            }
+            _ => bail!(
+                "expected `$name:$version` or `$version`, got {:?}",
+                fragment,
+            ),
+        };
+
+        url.set_fragment(None);
+
+        let query = format!("{} {} (path+{})", name, version, url);
+
         self.packages
             .iter()
-            .find(|p| p.name == name)
-            .with_context(|| format!("no such package: {:?}", name))
+            .find(|Package { id, .. }| self.workspace_members.contains(id) && id.repr == query)
+            .with_context(|| {
+                format!(
+                    "package `{}` is not a member of the workspace",
+                    spec.unwrap_or(&name),
+                )
+            })
     }
 }
 
