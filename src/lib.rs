@@ -100,7 +100,7 @@ pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
         workspace::create_workspace(workspace_root, false)?;
     }
 
-    let metadata = workspace::cargo_metadata_no_deps(Some(&manifest_path), color, &cwd)?;
+    let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     workspace::raise_unless_virtual(&metadata.workspace_root)?;
     let package_name =
         workspace::add_member(&metadata, &cargo_toml, &script, bin.as_deref(), false)?;
@@ -241,8 +241,9 @@ fn cargo_bikecase_new(
 
     init_logger(color);
 
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
-        workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+        workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let path = cwd.join(path.strip_prefix(".").unwrap_or(&path));
 
@@ -303,7 +304,7 @@ fn cargo_bikecase_rm(
         manifest_path,
         color,
         dry_run,
-        package,
+        spec,
     } = opt;
 
     let Context {
@@ -312,12 +313,17 @@ fn cargo_bikecase_rm(
 
     init_logger(color);
 
-    let metadata = workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
-    let package = metadata.find_package(&package)?;
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
+    let package = metadata.query_for_local_package(&manifest_path, Some(&spec))?;
     let dir = package
         .manifest_path
         .parent()
         .expect("`manifest_path` should end with \"Cargo.toml\"");
+
+    if cwd.starts_with(dir) {
+        bail!("aborted due to CWD");
+    }
 
     workspace::modify_members(
         &metadata.workspace_root,
@@ -348,8 +354,9 @@ fn cargo_bikecase_include(
 
     init_logger(color);
 
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
-        workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+        workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
 
     workspace::modify_members(
@@ -379,8 +386,9 @@ fn cargo_bikecase_exclude(
 
     init_logger(color);
 
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
-        workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+        workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
 
     workspace::modify_members(
@@ -415,8 +423,9 @@ fn cargo_bikecase_import(
 
     init_logger(color);
 
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
-        workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+        workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let content = file
         .as_ref()
@@ -438,9 +447,9 @@ fn cargo_bikecase_export(
     ctx: Context<impl Write, impl Sized, impl Sized>,
 ) -> anyhow::Result<()> {
     let CargoBikecaseExport {
+        package,
         manifest_path,
         color,
-        package,
     } = opt;
 
     let Context {
@@ -452,8 +461,11 @@ fn cargo_bikecase_export(
 
     init_logger(color);
 
-    let metadata = workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
-    let (src_path, cargo_toml) = metadata.find_package(&package)?.find_default_bin()?;
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
+    let (src_path, cargo_toml) = metadata
+        .query_for_local_package(&manifest_path, package.as_deref())?
+        .find_default_bin()?;
     let (code, _) =
         rust::replace_cargo_lang_code(&crate::fs::read(src_path)?, &cargo_toml, || {
             anyhow!(
@@ -490,8 +502,9 @@ fn cargo_bikecase_gist_clone(
 
     init_logger(color);
 
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
-        workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+        workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let mut config = BikecaseConfig::load_or_create(
         &config,
@@ -527,11 +540,11 @@ fn cargo_bikecase_gist_pull(
     ctx: Context<impl Sized, impl Sized, impl Sized>,
 ) -> anyhow::Result<()> {
     let CargoBikecaseGistPull {
+        package,
         manifest_path,
         color,
         dry_run,
         config,
-        package,
     } = opt;
 
     let Context {
@@ -545,8 +558,9 @@ fn cargo_bikecase_gist_pull(
 
     init_logger(color);
 
-    let metadata = workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
-    let package = metadata.find_package(&package)?;
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
+    let package = metadata.query_for_local_package(&manifest_path, package.as_deref())?;
 
     let config = BikecaseConfig::load_or_create(
         &config,
@@ -584,6 +598,7 @@ fn cargo_bikecase_gist_push(
     ctx: Context<impl Sized, impl Sized, impl FnMut(&str) -> io::Result<String>>,
 ) -> anyhow::Result<()> {
     let CargoBikecaseGistPush {
+        package,
         manifest_path,
         color,
         dry_run,
@@ -591,7 +606,6 @@ fn cargo_bikecase_gist_push(
         private,
         description,
         config,
-        package,
     } = opt;
 
     let Context {
@@ -606,7 +620,10 @@ fn cargo_bikecase_gist_push(
 
     init_logger(color);
 
-    let metadata = workspace::cargo_metadata_no_deps(manifest_path.as_deref(), color, &cwd)?;
+    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
+
+    let package = metadata.query_for_local_package(&manifest_path, package.as_deref())?;
 
     let mut config = BikecaseConfig::load_or_create(
         &config,
@@ -626,9 +643,9 @@ fn cargo_bikecase_gist_push(
         .content_mut()
         .workspace_or_default(&metadata.workspace_root, home_dir.as_deref())?
         .gist_ids
-        .entry(package.clone());
+        .entry(package.name.clone());
 
-    let (src_path, cargo_toml) = metadata.find_package(&package)?.find_default_bin()?;
+    let (src_path, cargo_toml) = package.find_default_bin()?;
     let (code, _) =
         rust::replace_cargo_lang_code(&crate::fs::read(src_path)?, &cargo_toml, || {
             anyhow!(
@@ -642,7 +659,7 @@ fn cargo_bikecase_gist_push(
         gist_id,
         code: &code,
         workspace_root: &metadata.workspace_root,
-        package: &package,
+        package: &package.name,
         set_upstream,
         private,
         description: description.as_deref(),
@@ -858,8 +875,8 @@ pub struct CargoBikecaseRm {
     #[structopt(long)]
     pub dry_run: bool,
 
-    /// The **name** of the package to remove
-    pub package: String,
+    /// Package to remove
+    pub spec: String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -937,6 +954,10 @@ pub struct CargoBikecaseImport {
 
 #[derive(StructOpt, Debug)]
 pub struct CargoBikecaseExport {
+    /// [cargo] Package with the target to export
+    #[structopt(short, long, value_name("SPEC"))]
+    pub package: Option<String>,
+
     /// [cargo] Path to Cargo.toml
     #[structopt(long, value_name("PATH"))]
     pub manifest_path: Option<PathBuf>,
@@ -949,9 +970,6 @@ pub struct CargoBikecaseExport {
         default_value("auto")
     )]
     pub color: AnsiColorChoice,
-
-    /// The **name** of the package to export
-    pub package: String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -1002,6 +1020,10 @@ pub struct CargoBikecaseGistClone {
 
 #[derive(StructOpt, Debug)]
 pub struct CargoBikecaseGistPull {
+    /// [cargo] Package with the target to export
+    #[structopt(short, long, value_name("SPEC"))]
+    pub package: Option<String>,
+
     /// [cargo] Path to Cargo.toml
     #[structopt(long, value_name("PATH"))]
     pub manifest_path: Option<PathBuf>,
@@ -1022,13 +1044,14 @@ pub struct CargoBikecaseGistPull {
     /// Path to the config file
     #[structopt(long, value_name("PATH"), default_value(&config::PATH))]
     pub config: PathBuf,
-
-    /// The **name** of the package to export
-    pub package: String,
 }
 
 #[derive(StructOpt, Debug)]
 pub struct CargoBikecaseGistPush {
+    /// [cargo] Package with the target to export
+    #[structopt(short, long, value_name("SPEC"))]
+    pub package: Option<String>,
+
     /// [cargo] Path to Cargo.toml
     #[structopt(long, value_name("PATH"))]
     pub manifest_path: Option<PathBuf>,
@@ -1061,9 +1084,6 @@ pub struct CargoBikecaseGistPush {
     /// Path to the config file
     #[structopt(long, value_name("PATH"), default_value(&config::PATH))]
     pub config: PathBuf,
-
-    /// The **name** of the package to push
-    pub package: String,
 }
 
 #[derive(Derivative)]
