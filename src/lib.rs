@@ -21,6 +21,7 @@ use log::{info, warn};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames as _};
+use termcolor::{BufferedStandardStream, ColorSpec, WriteColor as _};
 use unicode_width::UnicodeWidthStr;
 
 use std::convert::TryInto as _;
@@ -28,6 +29,31 @@ use std::env;
 use std::ffi::OsString;
 use std::io::{self, Read as _, Stdout, Write};
 use std::path::{Path, PathBuf};
+
+pub fn exit_with_error(error: anyhow::Error, color: crate::ColorChoice) -> ! {
+    let mut color = termcolor::ColorChoice::from(color);
+    if color == termcolor::ColorChoice::Auto && !atty::is(atty::Stream::Stderr) {
+        color = termcolor::ColorChoice::Never;
+    }
+    let mut stderr = BufferedStandardStream::stderr(color);
+
+    let _ = stderr.set_color(
+        ColorSpec::new()
+            .set_fg(Some(termcolor::Color::Red))
+            .set_bold(true)
+            .set_reset(false),
+    );
+    let _ = stderr.write_all(b"error: ");
+    let _ = stderr.reset();
+    let _ = writeln!(stderr, "{}", error);
+
+    for error in error.chain().skip(1) {
+        let _ = writeln!(stderr, "\nCuased by:\n  {}", error);
+    }
+
+    let _ = stderr.flush();
+    std::process::exit(101);
+}
 
 pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
     opt: Bikecase,
@@ -806,6 +832,29 @@ pub enum CargoBikecase {
     Gist(CargoBikecaseGist),
 }
 
+impl CargoBikecase {
+    pub fn color(&self) -> crate::ColorChoice {
+        match *self {
+            CargoBikecase::InitWorkspace(CargoBikecaseInitWorkspace { color, .. })
+            | CargoBikecase::New(CargoBikecaseNew { color, .. })
+            | CargoBikecase::Rm(CargoBikecaseRm { color, .. })
+            | CargoBikecase::Include(CargoBikecaseInclude { color, .. })
+            | CargoBikecase::Exclude(CargoBikecaseExclude { color, .. })
+            | CargoBikecase::Import(CargoBikecaseImport { color, .. })
+            | CargoBikecase::Export(CargoBikecaseExport { color, .. })
+            | CargoBikecase::Gist(CargoBikecaseGist::Clone(CargoBikecaseGistClone {
+                color, ..
+            }))
+            | CargoBikecase::Gist(CargoBikecaseGist::Pull(CargoBikecaseGistPull {
+                color, ..
+            }))
+            | CargoBikecase::Gist(CargoBikecaseGist::Push(CargoBikecaseGistPush {
+                color, ..
+            })) => color,
+        }
+    }
+}
+
 #[derive(StructOpt, Debug)]
 pub struct CargoBikecaseInitWorkspace {
     /// [cargo] Coloring
@@ -1141,6 +1190,16 @@ pub enum ColorChoice {
     Auto,
     Always,
     Never,
+}
+
+impl From<crate::ColorChoice> for termcolor::ColorChoice {
+    fn from(choice: crate::ColorChoice) -> Self {
+        match choice {
+            crate::ColorChoice::Auto => Self::Auto,
+            crate::ColorChoice::Always => Self::Always,
+            crate::ColorChoice::Never => Self::Never,
+        }
+    }
 }
 
 impl From<crate::ColorChoice> for WriteStyle {
