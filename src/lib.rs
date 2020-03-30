@@ -14,6 +14,7 @@ use crate::workspace::{MetadataExt as _, PackageExt as _};
 
 use anyhow::{anyhow, bail, Context as _};
 use derivative::Derivative;
+use env_logger::fmt::WriteStyle;
 use ignore::WalkBuilder;
 use itertools::Itertools as _;
 use log::{info, warn};
@@ -1102,7 +1103,7 @@ pub struct Context<W, I, P> {
 
 impl Context<Stdout, fn() -> io::Result<String>, fn(&str) -> io::Result<String>> {
     pub fn new() -> anyhow::Result<Self> {
-        use crate::logger::init_logger;
+        use crate::logger::init as init_logger;
 
         let cwd = env::current_dir()
             .with_context(|| "couldn't get the current directory of the process")?;
@@ -1140,4 +1141,14 @@ pub enum ColorChoice {
     Auto,
     Always,
     Never,
+}
+
+impl From<crate::ColorChoice> for WriteStyle {
+    fn from(choice: crate::ColorChoice) -> Self {
+        match choice {
+            crate::ColorChoice::Auto => Self::Auto,
+            crate::ColorChoice::Always => Self::Always,
+            crate::ColorChoice::Never => Self::Never,
+        }
+    }
 }

@@ -1,33 +1,51 @@
-use crate::ColorChoice;
-
-use log::{info, Level, LevelFilter, Log, Record};
-use once_cell::sync::OnceCell;
-use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor};
+use log::{info, Level, LevelFilter};
 
 use std::fmt::Display;
-use std::sync::{Arc, Mutex};
-use std::{env, iter};
+use std::io::Write as _;
+use std::iter;
 
-pub(crate) fn init_logger(color: ColorChoice) {
-    static LOGGER: OnceCell<Logger<BufferedStandardStream>> = OnceCell::new();
+pub(crate) fn init(color: crate::ColorChoice) {
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            macro_rules! style(($fg:expr, $intense:expr) => ({
+                let mut style = buf.style();
+                style.set_color($fg).set_intense($intense);
+                style
+            }));
 
-    let logger = LOGGER.get_or_init(|| Logger {
-        wtr: Arc::new(Mutex::new(BufferedStandardStream::stderr(match color {
-            ColorChoice::Auto => {
-                if should_enable_for_stderr() {
-                    termcolor::ColorChoice::AlwaysAnsi
-                } else {
-                    termcolor::ColorChoice::Never
-                }
-            }
-            ColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
-            ColorChoice::Never => termcolor::ColorChoice::Never,
-        }))),
-    });
+            let color = match record.level() {
+                Level::Error => env_logger::fmt::Color::Red,
+                Level::Warn => env_logger::fmt::Color::Yellow,
+                Level::Info => env_logger::fmt::Color::Cyan,
+                Level::Debug => env_logger::fmt::Color::Green,
+                Level::Trace => env_logger::fmt::Color::White,
+            };
 
-    if log::set_logger(logger).is_ok() {
-        log::set_max_level(FILTER_LEVEL);
-    }
+            let path = record
+                .module_path()
+                .map(|p| p.split("::").next().unwrap())
+                .filter(|&p| p != module_path!().split("::").next().unwrap())
+                .map(|p| format!(" {}", p))
+                .unwrap_or_default();
+
+            writeln!(
+                buf,
+                "{}{}{}{} {}",
+                style!(env_logger::fmt::Color::Black, true).value('['),
+                style!(color, false).value(record.level()),
+                path,
+                style!(env_logger::fmt::Color::Black, true).value(']'),
+                record.args(),
+            )
+        })
+        .filter_level(LEVEL_FILTER)
+        .write_style(color.into())
+        .init();
+
+    #[cfg(debug_assertions)]
+    const LEVEL_FILTER: LevelFilter = LevelFilter::Debug;
+    #[cfg(not(debug_assertions))]
+    const LEVEL_FILTER: LevelFilter = LevelFilter::Info;
 }
 
 pub(crate) fn info_diff(orig: &str, edit: &str, name: impl Display, str_width: fn(&str) -> usize) {
@@ -56,80 +74,4 @@ pub(crate) fn info_diff(orig: &str, edit: &str, name: impl Display, str_width: f
         info!("│{}{}", pref, line);
     }
     info!("└{}", horz_bar);
-}
-
-static FILTER_MODULE: &str = "bikecase";
-
-#[cfg(debug_assertions)]
-const FILTER_LEVEL: LevelFilter = LevelFilter::Debug;
-#[cfg(not(debug_assertions))]
-const FILTER_LEVEL: LevelFilter = LevelFilter::Info;
-
-#[cfg(not(windows))]
-fn should_enable_for_stderr() -> bool {
-    atty::is(atty::Stream::Stderr) && env::var("TERM").ok().map_or(false, |v| v != "dumb")
-}
-
-#[cfg(windows)]
-fn should_enable_for_stderr() -> bool {
-    use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    use winapi_util::HandleRef;
-
-    use std::ops::Deref;
-
-    let term = env::var("TERM");
-    let term = term.as_ref().map(Deref::deref);
-    if term == Ok("dumb") || term == Ok("cygwin") {
-        false
-    } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
-        atty::is(atty::Stream::Stderr)
-    } else {
-        atty::is(atty::Stream::Stderr)
-            && winapi_util::console::mode(HandleRef::stderr())
-                .ok()
-                .map_or(false, |m| m & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
-    }
-}
-
-struct Logger<W> {
-    wtr: Arc<Mutex<W>>,
-}
-
-impl<W: WriteColor + Sync + Send> Log for Logger<W> {
-    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.target().split("::").next() == Some(FILTER_MODULE)
-    }
-
-    fn log(&self, record: &Record<'_>) {
-        if self.enabled(record.metadata()) {
-            let mut wtr = self.wtr.lock().unwrap();
-
-            let mut write_colored = |s: &str, fg, bold, intense| -> _ {
-                wtr.set_color(
-                    ColorSpec::new()
-                        .set_fg(Some(fg))
-                        .set_bold(bold)
-                        .set_intense(intense)
-                        .set_reset(false),
-                )?;
-                wtr.write_all(s.as_ref())?;
-                wtr.reset()
-            };
-
-            write_colored("[", Color::Black, false, true).unwrap();
-            match record.level() {
-                Level::Trace => write_colored("TRACE", Color::Magenta, true, false),
-                Level::Debug => write_colored("DEBUG", Color::Green, true, false),
-                Level::Info => write_colored("INFO", Color::Cyan, true, false),
-                Level::Warn => write_colored("WARN", Color::Yellow, true, false),
-                Level::Error => write_colored("ERROR", Color::Red, true, false),
-            }
-            .unwrap();
-            write_colored("]", Color::Black, false, true).unwrap();
-            writeln!(wtr, " {}", record.args()).unwrap();
-            wtr.flush().unwrap();
-        }
-    }
-
-    fn flush(&self) {}
 }
