@@ -19,6 +19,7 @@ derivative = "2.1.0"
 diff = "0.1.12"
 dirs = "2.0.2"
 duct = "0.13.3"
+env_logger = "0.7.1"
 if_chain = "1.0.0"
 ignore = "0.4.14"
 indexmap = { version = "1.3.2", features = ["serde-1"] }
@@ -26,7 +27,7 @@ itertools = "0.9.0"
 log = "0.4.8"
 maplit = "1.0.2"
 once_cell = "1.3.1"
-proc-macro2 = { version = "1.0.9", default-features = false, features = ["span-locations"] }
+proc-macro2 = { version = "1.0.10", default-features = false, features = ["span-locations"] }
 pulldown-cmark = "0.7.0"
 remove_dir_all = "0.5.2"
 rpassword = "4.0.5"
@@ -43,7 +44,3 @@ toml_edit = "0.1.5"
 unicode-width = "0.1.7"
 ureq = { version = "0.12.0", default-features = false, features = ["json", "tls"] }
 url = "2.1.1"
-
-[target.'cfg(windows)'.dependencies]
-winapi = "0.3.8"
-winapi-util = "0.1.3"
