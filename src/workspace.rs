@@ -8,9 +8,9 @@ use serde::Deserialize;
 use toml_edit::Document;
 use url::Url;
 
-use std::env;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::{env, str};
 
 pub(crate) fn create_workspace(dir: impl AsRef<Path>, dry_run: bool) -> anyhow::Result<()> {
     let dir = dir.as_ref();
@@ -296,7 +296,7 @@ struct CargoTomlPackage {
 }
 
 pub(crate) trait MetadataExt {
-    fn query_for_local_package<'a>(
+    fn query_for_member<'a>(
         &'a self,
         manifest_path: &Path,
         spec: Option<&str>,
@@ -304,7 +304,7 @@ pub(crate) trait MetadataExt {
 }
 
 impl MetadataExt for cargo_metadata::Metadata {
-    fn query_for_local_package<'a>(
+    fn query_for_member<'a>(
         &'a self,
         manifest_path: &Path,
         spec: Option<&str>,
@@ -317,43 +317,42 @@ impl MetadataExt for cargo_metadata::Metadata {
             spec.map(OsStr::new),
         ];
         let args = args.iter().flatten();
-        let mut url = crate::process::cmd(program, args)
+        let output = crate::process::cmd(program, args)
             .dir(&self.workspace_root)
             .stdout_capture()
-            .read()?
-            .parse::<Url>()?;
+            .stderr_capture()
+            .unchecked()
+            .run()?;
+        let stdout = str::from_utf8(&output.stdout)?.trim_end();
+        let stderr = str::from_utf8(&output.stderr)?.trim_end();
 
-        let fragment = url
-            .fragment()
-            .with_context(|| "the URL should contain fragment")?;
+        if !output.status.success() {
+            bail!("{}", stderr);
+        }
 
-        let (name, version) = match *fragment.split(':').collect::<Vec<_>>() {
-            [name, version] => (name.to_owned(), version.to_owned()),
-            [version] => {
-                let name = url
-                    .path_segments()
-                    .and_then(Iterator::last)
-                    .unwrap_or_default();
-                (name.to_owned(), version.to_owned())
-            }
-            _ => bail!(
-                "expected `$name:$version` or `$version`, got {:?}",
-                fragment,
-            ),
+        let url = stdout.parse::<Url>()?;
+        let fragment = url.fragment().expect("the URL should contain fragment");
+        let spec_name = match *fragment.splitn(2, ':').collect::<Vec<_>>() {
+            [name, _] => name,
+            [_] => url
+                .path_segments()
+                .and_then(Iterator::last)
+                .expect("should contain name"),
+            _ => unreachable!(),
         };
-
-        url.set_fragment(None);
-
-        let query = format!("{} {} (path+{})", name, version, url);
 
         self.packages
             .iter()
-            .find(|Package { id, .. }| self.workspace_members.contains(id) && id.repr == query)
+            .inspect(|Package { id, .. }| {
+                debug_assert!(
+                    self.workspace_members.contains(id),
+                    "the metadata should be in `--no-deps` mode",
+                );
+            })
+            .find(|Package { name, .. }| name == spec_name)
             .with_context(|| {
-                format!(
-                    "package `{}` is not a member of the workspace",
-                    spec.unwrap_or(&name),
-                )
+                let spec = spec.expect("should be present");
+                format!("package `{}` is not a member of the workspace", spec)
             })
     }
 }
