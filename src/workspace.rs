@@ -1,4 +1,3 @@
-use crate::AnsiColorChoice;
 use crate::{logger, rust};
 
 use anyhow::{anyhow, bail, ensure, Context as _};
@@ -44,7 +43,7 @@ pub(crate) fn manfiest_path(manifest_path: Option<&Path>, cwd: &Path) -> anyhow:
 
 pub(crate) fn cargo_metadata_no_deps(
     manifest_path: &Path,
-    color: AnsiColorChoice,
+    color: crate::ColorChoice,
     cwd: &Path,
 ) -> anyhow::Result<cargo_metadata::Metadata> {
     let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());

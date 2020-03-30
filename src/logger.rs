@@ -1,4 +1,4 @@
-use crate::AnsiColorChoice;
+use crate::ColorChoice;
 
 use log::{info, Level, LevelFilter, Log, Record};
 use once_cell::sync::OnceCell;
@@ -8,20 +8,20 @@ use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 use std::{env, iter};
 
-pub(crate) fn init_logger(color: AnsiColorChoice) {
+pub(crate) fn init_logger(color: ColorChoice) {
     static LOGGER: OnceCell<Logger<BufferedStandardStream>> = OnceCell::new();
 
     let logger = LOGGER.get_or_init(|| Logger {
         wtr: Arc::new(Mutex::new(BufferedStandardStream::stderr(match color {
-            AnsiColorChoice::Auto => {
+            ColorChoice::Auto => {
                 if should_enable_for_stderr() {
                     termcolor::ColorChoice::AlwaysAnsi
                 } else {
                     termcolor::ColorChoice::Never
                 }
             }
-            AnsiColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
-            AnsiColorChoice::Never => termcolor::ColorChoice::Never,
+            ColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
+            ColorChoice::Never => termcolor::ColorChoice::Never,
         }))),
     });
 

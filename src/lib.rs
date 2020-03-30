@@ -746,10 +746,10 @@ pub struct Bikecase {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Path to the script
     pub file: Option<PathBuf>,
@@ -811,10 +811,10 @@ pub struct CargoBikecaseInitWorkspace {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -839,10 +839,10 @@ pub struct CargoBikecaseNew {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -866,10 +866,10 @@ pub struct CargoBikecaseRm {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -889,10 +889,10 @@ pub struct CargoBikecaseInclude {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -912,10 +912,10 @@ pub struct CargoBikecaseExclude {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -935,10 +935,10 @@ pub struct CargoBikecaseImport {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -966,10 +966,10 @@ pub struct CargoBikecaseExport {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 }
 
 #[derive(StructOpt, Debug)]
@@ -997,10 +997,10 @@ pub struct CargoBikecaseGistClone {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -1032,10 +1032,10 @@ pub struct CargoBikecaseGistPull {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -1060,10 +1060,10 @@ pub struct CargoBikecaseGistPush {
     #[structopt(
         long,
         value_name("WHEN"),
-        possible_values(AnsiColorChoice::VARIANTS),
+        possible_values(crate::ColorChoice::VARIANTS),
         default_value("auto")
     )]
-    pub color: AnsiColorChoice,
+    pub color: crate::ColorChoice,
 
     /// Dry run
     #[structopt(long)]
@@ -1095,7 +1095,7 @@ pub struct Context<W, I, P> {
     pub stdout: W,
     pub read_input: I,
     pub read_password: P,
-    pub init_logger: fn(AnsiColorChoice),
+    pub init_logger: fn(crate::ColorChoice),
     #[derivative(Debug = "ignore")]
     pub str_width: fn(&str) -> usize,
 }
@@ -1136,7 +1136,7 @@ impl Context<Stdout, fn() -> io::Result<String>, fn(&str) -> io::Result<String>>
 
 #[derive(EnumString, EnumVariantNames, IntoStaticStr, Debug, Clone, Copy)]
 #[strum(serialize_all = "kebab-case")]
-pub enum AnsiColorChoice {
+pub enum ColorChoice {
     Auto,
     Always,
     Never,
