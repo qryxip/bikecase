@@ -342,7 +342,7 @@ fn cargo_bikecase_rm(
 
     let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
-    let package = metadata.query_for_local_package(&manifest_path, Some(&spec))?;
+    let package = metadata.query_for_member(&manifest_path, Some(&spec))?;
     let dir = package
         .manifest_path
         .parent()
@@ -491,7 +491,7 @@ fn cargo_bikecase_export(
     let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let (src_path, cargo_toml) = metadata
-        .query_for_local_package(&manifest_path, package.as_deref())?
+        .query_for_member(&manifest_path, package.as_deref())?
         .find_default_bin()?;
     let (code, _) =
         rust::replace_cargo_lang_code(&crate::fs::read(src_path)?, &cargo_toml, || {
@@ -587,7 +587,7 @@ fn cargo_bikecase_gist_pull(
 
     let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
-    let package = metadata.query_for_local_package(&manifest_path, package.as_deref())?;
+    let package = metadata.query_for_member(&manifest_path, package.as_deref())?;
 
     let config = BikecaseConfig::load_or_create(
         &config,
@@ -650,7 +650,7 @@ fn cargo_bikecase_gist_push(
     let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
-    let package = metadata.query_for_local_package(&manifest_path, package.as_deref())?;
+    let package = metadata.query_for_member(&manifest_path, package.as_deref())?;
 
     let mut config = BikecaseConfig::load_or_create(
         &config,
