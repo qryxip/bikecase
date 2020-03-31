@@ -1,14 +1,14 @@
 use crate::{logger, rust};
 
 use anyhow::{anyhow, bail, ensure, Context as _};
-use cargo_metadata::{Package, Target};
+use cargo_metadata::{Metadata, Package, Target};
 use itertools::Itertools as _;
 use log::info;
 use serde::Deserialize;
 use toml_edit::Document;
 use url::Url;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::{env, str};
 
@@ -41,12 +41,20 @@ pub(crate) fn manifest_path(manifest_path: Option<&Path>, cwd: &Path) -> anyhow:
         })
 }
 
+pub(crate) fn cargo_exe() -> anyhow::Result<OsString> {
+    env::var_os("CARGO").map(Ok).unwrap_or_else(|| {
+        which::which("cargo")
+            .map(Into::into)
+            .map_err(|e| anyhow!("{}", e))
+    })
+}
+
 pub(crate) fn cargo_metadata_no_deps(
     manifest_path: &Path,
     color: crate::ColorChoice,
     cwd: &Path,
-) -> anyhow::Result<cargo_metadata::Metadata> {
-    let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+) -> anyhow::Result<Metadata> {
+    let program = cargo_exe()?;
     let args = [
         "metadata".as_ref(),
         "--no-deps".as_ref(),
@@ -59,7 +67,7 @@ pub(crate) fn cargo_metadata_no_deps(
         "--frozen".as_ref(),
     ];
     let metadata = crate::process::cmd(program, &args).dir(cwd).read()?;
-    let metadata = serde_json::from_str::<cargo_metadata::Metadata>(&metadata)?;
+    let metadata = serde_json::from_str::<Metadata>(&metadata)?;
     Ok(metadata)
 }
 
@@ -76,7 +84,7 @@ pub(crate) fn raise_unless_virtual(workspace_root: &Path) -> anyhow::Result<()> 
 }
 
 pub(crate) fn add_member(
-    metadata: &cargo_metadata::Metadata,
+    metadata: &Metadata,
     cargo_toml: &str,
     bin: &str,
     bin_name: Option<&str>,
@@ -303,13 +311,23 @@ pub(crate) trait MetadataExt {
     ) -> anyhow::Result<&'a Package>;
 }
 
-impl MetadataExt for cargo_metadata::Metadata {
+impl MetadataExt for Metadata {
     fn query_for_member<'a>(
         &'a self,
         manifest_path: &Path,
         spec: Option<&str>,
     ) -> anyhow::Result<&'a Package> {
-        let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let cargo_exe = cargo_exe()?;
+
+        if !self.workspace_root.join("Cargo.lock").exists() {
+            let args = [
+                "generate-lockfile".into(),
+                "--manifest-path".into(),
+                self.workspace_root.join("Cargo.toml").into_os_string(),
+            ];
+            crate::process::cmd(&cargo_exe, &args).run()?;
+        }
+
         let args = [
             Some("pkgid".as_ref()),
             Some("--manifest-path".as_ref()),
@@ -317,7 +335,7 @@ impl MetadataExt for cargo_metadata::Metadata {
             spec.map(OsStr::new),
         ];
         let args = args.iter().flatten();
-        let output = crate::process::cmd(program, args)
+        let output = crate::process::cmd(cargo_exe, args)
             .dir(&self.workspace_root)
             .stdout_capture()
             .stderr_capture()
@@ -325,10 +343,7 @@ impl MetadataExt for cargo_metadata::Metadata {
             .run()?;
         let stdout = str::from_utf8(&output.stdout)?.trim_end();
         let stderr = str::from_utf8(&output.stderr)?.trim_end();
-
-        if !output.status.success() {
-            bail!("{}", stderr);
-        }
+        ensure!(output.status.success(), "{}", stderr);
 
         let url = stdout.parse::<Url>()?;
         let fragment = url.fragment().expect("the URL should contain fragment");
@@ -351,7 +366,7 @@ impl MetadataExt for cargo_metadata::Metadata {
             })
             .find(|Package { name, .. }| name == spec_name)
             .with_context(|| {
-                let spec = spec.expect("should be present");
+                let spec = spec.expect("should be present here");
                 format!("package `{}` is not a member of the workspace", spec)
             })
     }

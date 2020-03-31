@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::{env, io};
 
 pub(crate) static PATH: Lazy<String> = Lazy::new(|| {
     dirs::config_dir()
@@ -79,7 +79,7 @@ impl BikecaseConfig {
             }
             if !Path::new(&template_package_expanded).exists() {
                 crate::process::run(
-                    env::var_os("CARGO").unwrap_or_else(|| "cargo".into()),
+                    workspace::cargo_exe()?,
                     &["new", "--name", "__template", &template_package_expanded],
                     dry_run,
                 )?;
