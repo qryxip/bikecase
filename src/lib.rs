@@ -268,7 +268,7 @@ fn cargo_bikecase_new(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
@@ -340,7 +340,7 @@ fn cargo_bikecase_rm(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let package = metadata.query_for_member(&manifest_path, Some(&spec))?;
     let dir = package
@@ -381,7 +381,7 @@ fn cargo_bikecase_include(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
@@ -413,7 +413,7 @@ fn cargo_bikecase_exclude(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
@@ -450,7 +450,7 @@ fn cargo_bikecase_import(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
@@ -488,7 +488,7 @@ fn cargo_bikecase_export(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let (src_path, cargo_toml) = metadata
         .query_for_member(&manifest_path, package.as_deref())?
@@ -529,7 +529,7 @@ fn cargo_bikecase_gist_clone(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let cargo_metadata::Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
@@ -585,7 +585,7 @@ fn cargo_bikecase_gist_pull(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let package = metadata.query_for_member(&manifest_path, package.as_deref())?;
 
@@ -647,7 +647,7 @@ fn cargo_bikecase_gist_push(
 
     init_logger(color);
 
-    let manifest_path = workspace::manfiest_path(manifest_path.as_deref(), &cwd)?;
+    let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
     let metadata = workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let package = metadata.query_for_member(&manifest_path, package.as_deref())?;
