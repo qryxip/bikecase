@@ -25,7 +25,7 @@ exclude = []
 "#;
 }
 
-pub(crate) fn manfiest_path(manifest_path: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
+pub(crate) fn manifest_path(manifest_path: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
     manifest_path
         .map(ToOwned::to_owned)
         .or_else(|| {
