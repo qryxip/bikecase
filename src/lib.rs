@@ -13,6 +13,7 @@ use crate::gist::PushOptions;
 use crate::workspace::{MetadataExt as _, PackageExt as _};
 
 use anyhow::{anyhow, bail, Context as _};
+use cargo_metadata::Metadata;
 use derivative::Derivative;
 use env_logger::fmt::WriteStyle;
 use ignore::WalkBuilder;
@@ -132,7 +133,7 @@ pub fn bikecase<W: Sized, I: FnOnce() -> io::Result<String>, P: Sized>(
     let package_name =
         workspace::add_member(&metadata, &cargo_toml, &script, bin.as_deref(), false)?;
 
-    let program = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let program = workspace::cargo_exe()?;
     let mut program_args = vec![
         "run".into(),
         "-p".into(),
@@ -269,7 +270,7 @@ fn cargo_bikecase_new(
     init_logger(color);
 
     let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
-    let cargo_metadata::Metadata { workspace_root, .. } =
+    let Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let path = cwd.join(path.strip_prefix(".").unwrap_or(&path));
@@ -382,7 +383,7 @@ fn cargo_bikecase_include(
     init_logger(color);
 
     let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
-    let cargo_metadata::Metadata { workspace_root, .. } =
+    let Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
 
@@ -414,7 +415,7 @@ fn cargo_bikecase_exclude(
     init_logger(color);
 
     let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
-    let cargo_metadata::Metadata { workspace_root, .. } =
+    let Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
     let path = cwd.join(path);
 
@@ -451,7 +452,7 @@ fn cargo_bikecase_import(
     init_logger(color);
 
     let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
-    let cargo_metadata::Metadata { workspace_root, .. } =
+    let Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let content = file
@@ -530,7 +531,7 @@ fn cargo_bikecase_gist_clone(
     init_logger(color);
 
     let manifest_path = workspace::manifest_path(manifest_path.as_deref(), &cwd)?;
-    let cargo_metadata::Metadata { workspace_root, .. } =
+    let Metadata { workspace_root, .. } =
         workspace::cargo_metadata_no_deps(&manifest_path, color, &cwd)?;
 
     let mut config = BikecaseConfig::load_or_create(
